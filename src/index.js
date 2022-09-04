@@ -1,74 +1,125 @@
-import './css/styles.css';
-import { fetchCountries } from './fetchCountries';
+import { getImages } from './getImages';
 import Notiflix from 'notiflix';
+import SimpleLightbox from 'simplelightbox';
+import 'simplelightbox/dist/simple-lightbox.min.css';
 
-const debounce = require('lodash.debounce');
-const DEBOUNCE_DELAY = 300;
+const searchForm = document.querySelector('#search-form');
+const gallery = document.querySelector('.gallery');
 
-const searchBox = document.querySelector('#search-box');
-const countryList = document.querySelector('.country-list');
-const countryInfo = document.querySelector('.country-info');
+// variables //
+let search_query = '';
+let page = 1;
+const perPage = 40;
+let lightbox = new SimpleLightbox('.gallery a');
 
-searchBox.addEventListener(
-  'input',
-  debounce(inputEventHandler, DEBOUNCE_DELAY)
-);
+// event listeners //
+searchForm.addEventListener('submit', imageSearch);
 
-function clearCountryInfo() {
-  countryList.innerHTML = '';
-  countryInfo.innerHTML = '';
+//  functions  //
+
+function clearResults() {
+  gallery.innerHTML = '';
+  page = 1;
 }
 
-function inputEventHandler(event) {
-  const countryToFind = event.target.value.trim();
-  if (!countryToFind) {
-    clearCountryInfo();
+function imageSearch(event) {
+  event.preventDefault();
+  search_query = event.currentTarget.searchQuery.value.trim();
+
+  clearResults();
+  if (search_query === '') {
+    Notiflix.Notify.failure('Search field cannot be empty');
     return;
   }
 
-  fetchCountries(countryToFind)
-    .then(country => {
-      if (country.length > 10) {
-        Notiflix.Notify.info(
-          'Too many matches found. Please enter a more specific name.'
+  getImages(search_query, page, perPage)
+    .then(({ data }) => {
+      if (!data.total) {
+        Notiflix.Notify.failure(
+          'Sorry, there are no images matching your search query. Please try again.'
         );
-        clearCountryInfo();
-        return;
-      } else if (country.length === 1) {
-        clearCountryInfo(countryList.innerHTML);
-        createCountryInfo(country);
-      } else if (country.length >= 2 && country.length <= 10) {
-        clearCountryInfo(countryInfo.innerHTML), createCountryList(country);
+      } else {
+        renderGallery(data.hits);
+        lightbox.refresh();
+
+        Notiflix.Notify.success(`Hooray! We found ${data.total} images.`);
       }
     })
-
-    .catch(error => {
-      Notiflix.Notify.failure('Oops, there is no country with that name');
-      clearCountryInfo();
-      return error;
-    });
+    .catch(error => console.log(error));
 }
 
-function createCountryList(country) {
-  const markup = country
-    .map(({ name, flags }) => {
-      return `<li class="countryItem"><img src="${flags.svg}" alt="${name.official}" width="40" height="20"> 
-      ${name.official}</li>`;
+function getMoreImages() {
+  page += 1;
+  getImages(search_query, page, perPage)
+    .then(({ data }) => {
+      renderGallery(data.hits);
+      lightbox.refresh();
+      const allPages = Math.ceil(data.hits / perPage);
+
+      if (page > allPages) {
+        Notiflix.Notify.failure("You've reached the end of search results.");
+      }
     })
-    .join('');
-  countryList.innerHTML = markup;
+    .catch(error => console.log(error));
 }
 
-function createCountryInfo(country) {
-  const markupInfo = country
-    .map(({ name, capital, population, flags, languages }) => {
-      return `<img src="${flags.svg}" alt="${
-        name.official
-      }" width="100" height="80"><h1> ${name.official}</h1> 
-      <p><span><b>Capital:</b></span> ${capital}</p>
-      <p><span><b>Population:</b></span> ${population}</p>
-      <p><span><b>Languages:</b></span> ${Object.values(languages)}</p>`;
-    })
+// infinite scroll //
+
+window.onscroll = infiniteScroll;
+
+// This variable is used to remember if the function was executed.
+var isExecuted = false;
+
+function infiniteScroll() {
+  // Inside the "if" statement the "isExecuted" variable is negated to allow initial code execution.
+  if (
+    window.scrollY > document.body.offsetHeight - window.outerHeight &&
+    !isExecuted
+  ) {
+    // Set "isExecuted" to "true" to prevent further execution
+    isExecuted = true;
+
+    // Your code goes here
+    getMoreImages();
+
+    // After 1 second the "isExecuted" will be set to "false" to allow the code inside the "if" statement to be executed again
+    setTimeout(() => {
+      isExecuted = false;
+    }, 1000);
+  }
+}
+
+// html rendering  //
+
+function renderGallery(data) {
+  const markup = data
+    .map(
+      ({
+        webformatURL,
+        largeImageURL,
+        tags,
+        likes,
+        views,
+        comments,
+        downloads,
+      }) => {
+        return `<div class="photo-card">
+        <a href="${largeImageURL}"> <img src="${webformatURL}" alt="${tags}" loading="lazy" title=""/>
+        <div class="info">
+          <p class="info-item">
+              <b>Likes</b>${likes}</p>
+          <p class="info-item">
+            <b>Views</b>${views}</p>
+          <p class="info-item">
+            <b>Comments</b>${comments}</p>
+          <p class="info-item">
+            <b>Downloads</b>${downloads}</p>
+        </div>
+        </a>
+</div>`;
+      }
+    )
     .join('');
-  countryInfo.innerHTML = markupInfo;
+
+  gallery.insertAdjacentHTML('beforeend', markup);
 }
